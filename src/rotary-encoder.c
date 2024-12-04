@@ -15,6 +15,7 @@
  */
 
 #include <CowPi.h>
+#include "display.h"
 #include "interrupt_support.h"
 #include "rotary-encoder.h"
 
@@ -25,7 +26,8 @@ typedef enum {
     HIGH_HIGH, HIGH_LOW, LOW_LOW, LOW_HIGH, UNKNOWN
 } rotation_state_t;
 
-static rotation_state_t volatile state;
+static cowpi_ioport_t volatile *ioport = (cowpi_ioport_t*) (0xD0000000);
+static rotation_state_t volatile state = HIGH_HIGH;
 static direction_t volatile direction = STATIONARY;
 static int volatile clockwise_count = 0;
 static int volatile counterclockwise_count = 0;
@@ -35,26 +37,103 @@ static void handle_quadrature_interrupt();
 void initialize_rotary_encoder() {
     cowpi_set_pullup_input_pins((1 << A_WIPER_PIN) | (1 << B_WIPER_PIN));
     ;
-//    register_pin_ISR((1 << A_WIPER_PIN) | (1 << B_WIPER_PIN), handle_quadrature_interrupt);
+    register_pin_ISR((1 << A_WIPER_PIN) | (1 << B_WIPER_PIN), handle_quadrature_interrupt);
+    switch (get_quadrature()){
+        case 0b00:
+            state = LOW_LOW;
+            break;
+        case 0b01:
+            state = LOW_HIGH;
+            break;
+        case 0b10:
+            state = HIGH_LOW;
+            break;
+        case 0b11:
+            state = HIGH_HIGH;
+            break;
+    }
 }
 
 uint8_t get_quadrature() {
-    ;
-    return 0;
+    uint32_t input = ioport->input;
+    input = (input & (1<<A_WIPER_PIN | 1<<B_WIPER_PIN));
+    uint8_t result = (uint8_t) (input>>A_WIPER_PIN);
+    return result;
 }
 
 char *count_rotations(char *buffer) {
-    ;
+    sprintf(buffer, "CW: %d CCW: %d", clockwise_count, counterclockwise_count);
     return buffer;
 }
 
 direction_t get_direction() {
-    ;
-    return STATIONARY;
+    direction_t curr_direction = direction; 
+    direction = STATIONARY;
+    return curr_direction;
 }
 
 static void handle_quadrature_interrupt() {
-    static rotation_state_t last_state = UNKNOWN;
+    static rotation_state_t last_state = HIGH_HIGH;
     uint8_t quadrature = get_quadrature();
-    ;
+    switch(state){
+        case HIGH_HIGH:
+            switch(quadrature){
+                case 0b10:
+                    last_state = state;
+                    state = HIGH_LOW;
+                    break;
+                case 0b01:
+                    last_state = state;
+                    state = LOW_HIGH;
+                    break;
+            }
+            break;
+        case HIGH_LOW:
+            switch(quadrature){
+                case 0b11:
+                    last_state = state;
+                    state = HIGH_HIGH;
+                    break;
+                case 0b00:
+                    if(last_state==HIGH_HIGH){
+                        last_state = state;
+                        state = LOW_LOW;
+                        direction = CLOCKWISE;
+                        clockwise_count++;
+                    }
+                    break;
+            }
+            break;
+        case LOW_HIGH:
+            switch(quadrature){
+                case 0b11:
+                    last_state = state;
+                    state = HIGH_HIGH;
+                    break;
+                case 0b00:
+                    if(last_state==HIGH_HIGH){
+                        last_state = state;
+                        state = LOW_LOW;
+                        direction = COUNTERCLOCKWISE;
+                        counterclockwise_count++;
+                    }
+                    break;
+            }
+            break;
+        case LOW_LOW:
+            switch(quadrature){
+                case 0b01:
+                    if(last_state==HIGH_LOW){
+                        last_state = state;
+                        state = LOW_HIGH;
+                    }
+                    break;
+                case 0b10:
+                    if(last_state==LOW_HIGH){
+                        last_state = state;
+                        state = HIGH_LOW;
+                    }
+                    break;
+            }
+    }
 }

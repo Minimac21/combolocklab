@@ -31,7 +31,6 @@ void force_combination_reset() {
     combination[1] = 10;
     combination[2] = 15;
 }
-
 void initialize_lock_controller() {
     ;
 }
