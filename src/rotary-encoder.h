@@ -31,5 +31,9 @@ void initialize_rotary_encoder();
 uint8_t get_quadrature();
 char *count_rotations(char buffer[]);
 direction_t get_direction();
+int get_cw_count();
+int get_ccw_count();
+void set_cw_count(int x);
+void set_ccw_count(int x);
 
 #endif //COMBOLOCK_ROTARY_ENCODER_H

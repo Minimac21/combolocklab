@@ -31,6 +31,7 @@ static rotation_state_t volatile state = HIGH_HIGH;
 static direction_t volatile direction = STATIONARY;
 static int volatile clockwise_count = 0;
 static int volatile counterclockwise_count = 0;
+char count_buffer[20];
 
 static void handle_quadrature_interrupt();
 
@@ -60,6 +61,20 @@ uint8_t get_quadrature() {
     input = (input & (1<<A_WIPER_PIN | 1<<B_WIPER_PIN));
     uint8_t result = (uint8_t) (input>>A_WIPER_PIN);
     return result;
+}
+
+int get_cw_count(){
+    return clockwise_count;
+}
+int get_ccw_count(){
+    return counterclockwise_count;
+}
+
+void set_cw_count(int x){
+    clockwise_count = x;
+}
+void set_ccw_count(int x){
+    counterclockwise_count = x;
 }
 
 char *count_rotations(char *buffer) {
@@ -101,6 +116,8 @@ static void handle_quadrature_interrupt() {
                         state = LOW_LOW;
                         direction = CLOCKWISE;
                         clockwise_count++;
+                        count_rotations(count_buffer);
+                        display_string(4, count_buffer);
                     }
                     break;
             }
@@ -117,6 +134,8 @@ static void handle_quadrature_interrupt() {
                         state = LOW_LOW;
                         direction = COUNTERCLOCKWISE;
                         counterclockwise_count++;
+                        count_rotations(count_buffer);
+                        display_string(4, count_buffer);
                     }
                     break;
             }
