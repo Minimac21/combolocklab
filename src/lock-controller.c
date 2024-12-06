@@ -40,10 +40,21 @@ int second_num=0;
 int third_num=0;
 char count_buffer[20];
 char combo_buffer[20];
+static cowpi_timer_t volatile *timer;
 
-
+// Add interrupt to check if sequence for combo reset was called
 uint8_t const *get_combination() {
     return combination;
+}
+
+uint32_t get_microseconds() {
+    return timer->raw_lower_word;
+}
+
+void sleep_quarter_second(){
+    // TODO: Make this not freeze display.
+    uint32_t wait_start_time = get_microseconds();
+    while (get_microseconds() < 250000 + wait_start_time){;;}
 }
 
 void force_combination_reset() {
@@ -59,6 +70,7 @@ void set_system_to_locked(uint8_t *combination){
     display_string(1, "LOCKED");
     state = LOCKED;
     working_index = FIRST;
+    display_string(1, "__ __ __"); // This should display currently entered combo
     
     // SHOW THE COMBINATION (delete later?)
     static char combo_buffer[22] = {0};
@@ -66,8 +78,49 @@ void set_system_to_locked(uint8_t *combination){
     display_string(3, combo_buffer);
 }
 
+void set_system_to_unlocked(){
+    digitalWrite(LEFT_LED_PIN, 0);
+    digitalWrite(RIGHT_LED_PIN, 1);
+    rotate_full_counterclockwise();
+    // clear_display();
+    display_string(1, "OPEN");
+}
+
+void show_bad_try(int attempt_num){
+    char buffer[11];
+    sprintf(buffer, "bad try %d", attempt_num);
+    display_string(2, buffer);
+
+    // LEDs blink twice
+    digitalWrite(LEFT_LED_PIN, 1);
+    digitalWrite(RIGHT_LED_PIN, 1);
+    sleep_quarter_second();
+    digitalWrite(LEFT_LED_PIN, 0);
+    digitalWrite(RIGHT_LED_PIN, 0);
+    sleep_quarter_second();
+    digitalWrite(LEFT_LED_PIN, 1);
+    digitalWrite(RIGHT_LED_PIN, 1);
+    sleep_quarter_second();
+    digitalWrite(LEFT_LED_PIN, 0);
+    digitalWrite(RIGHT_LED_PIN, 0);
+}
+
+void set_system_to_alarmed(){
+    display_string(1, "alert!");
+    while(1){
+        digitalWrite(LEFT_LED_PIN, 1);
+        digitalWrite(RIGHT_LED_PIN, 1);
+        sleep_quarter_second();
+        digitalWrite(LEFT_LED_PIN, 0);
+        digitalWrite(RIGHT_LED_PIN, 0);
+        sleep_quarter_second();
+    }
+}
+
 void initialize_lock_controller() {
+    timer = (cowpi_timer_t *) (0x40054000);
     set_system_to_locked(combination);
+    show_bad_try(2);
 }
 
 
