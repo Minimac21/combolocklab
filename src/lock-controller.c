@@ -25,19 +25,12 @@
 
 static uint8_t combination[3] __attribute__((section (".uninitialized_ram.")));
 typedef enum {
-    LOCKED, UNLOCKED, CHANGING
+    LOCKED, UNLOCKED, CHANGING, ALARMED
 } state_t;
-typedef enum {
-    FIRST, SECOND, THIRD
-} num_t;
 state_t state;
-num_t working_index;
-int working_number;
-bool valid = true;
-static int rotations_count = 0;
-int first_num=0;
-int second_num=0;
-int third_num=0;
+uint8_t working_index = 0;
+uint8_t attempt_number = 0;
+uint8_t entered_combo_array[3];
 char count_buffer[20];
 char combo_buffer[20];
 static cowpi_timer_t volatile *timer;
@@ -67,9 +60,6 @@ void set_system_to_locked(uint8_t *combination){
     digitalWrite(LEFT_LED_PIN, 1);
     digitalWrite(RIGHT_LED_PIN, 0);
     rotate_full_clockwise();
-    display_string(1, "LOCKED");
-    state = LOCKED;
-    working_index = FIRST;
     display_string(1, "__ __ __"); // This should display currently entered combo
     
     // SHOW THE COMBINATION (delete later?)
@@ -105,91 +95,125 @@ void show_bad_try(int attempt_num){
     digitalWrite(RIGHT_LED_PIN, 0);
 }
 
-void set_system_to_alarmed(){
+void show_system_as_alarmed(){
     display_string(1, "alert!");
-    while(1){
-        digitalWrite(LEFT_LED_PIN, 1);
-        digitalWrite(RIGHT_LED_PIN, 1);
-        sleep_quarter_second();
-        digitalWrite(LEFT_LED_PIN, 0);
-        digitalWrite(RIGHT_LED_PIN, 0);
-        sleep_quarter_second();
-    }
+    
+    digitalWrite(LEFT_LED_PIN, 1);
+    digitalWrite(RIGHT_LED_PIN, 1);
+    sleep_quarter_second();
+    digitalWrite(LEFT_LED_PIN, 0);
+    digitalWrite(RIGHT_LED_PIN, 0);
+    sleep_quarter_second();
+}
+
+void set_system_to_changing(){
+    display_string(1, "enter!");
+    display_string(2, "__ __ __");
+
 }
 
 void initialize_lock_controller() {
     timer = (cowpi_timer_t *) (0x40054000);
     set_system_to_locked(combination);
-    show_bad_try(2);
+    state = LOCKED;
+}
+
+bool arraysAreEqual(uint8_t size_of_array, uint8_t* array1, uint8_t* array2){
+    // WARNING does not check for out of bounds.
+    bool equal_so_far = true;
+    for (int i = 0; i < size_of_array; i++){
+        if (equal_so_far && (array1[i] != array2[i])){
+            equal_so_far = false;
+        }
+    }
+    return equal_so_far;
+}
+
+void reset_combo_entry(){
+    int COMBO_LENGTH = 3;
+    for (int i = 0; i < COMBO_LENGTH; i++){
+        entered_combo_array[i] = 0;
+    }
+    set_cw_count(0);
+    set_ccw_count(0);
+    working_index = 0;
+}
+
+void get_combo_input(uint8_t entered_combo_array[]){
+    int COMBO_LENGTH = 3; // needs to be equal to length of entered_combo_array[].
+    // first and third numbers are clockwise, second number is counterclockwise.
+    direction_t expected_direction = (working_index % 2 == 0) ? CLOCKWISE : COUNTERCLOCKWISE;
+    direction_t actual_direction = get_direction();
+    if ((actual_direction != STATIONARY) && (actual_direction != expected_direction)){ // when we switch directions.
+        working_index++;
+        set_cw_count(0);
+        set_ccw_count(0);
+    } else { // still spinning. looking for next number.
+        bool valid = true;
+        if (expected_direction == CLOCKWISE){
+            int cw_count = get_cw_count();
+            entered_combo_array[working_index] = cw_count;
+            valid = cw_count <= ((COMBO_LENGTH - working_index) * 16); // check if you overspun and missed your number.
+        } else if (expected_direction == COUNTERCLOCKWISE){ // this 'if' is redundent, but i kept it for clarity because "STATIONARY" exists.
+            int ccw_count = get_ccw_count();
+            entered_combo_array[working_index] = ccw_count;
+            valid = ccw_count <= ((COMBO_LENGTH - working_index) * 16);
+        }
+        if (!valid){
+            reset_combo_entry();
+            attempt_number++;
+            show_bad_try(attempt_number);
+        }
+    }
+
+    count_rotations(count_buffer);
+    display_string(4, count_buffer);
+    char workingIndexString[5];
+    sprintf(workingIndexString, "%d", working_index);
+    display_string(5, workingIndexString);
+
+}
+
+bool get_new_combo_from_keypad(){
+    // STUB: return 1 if successfully changed password, else 0.
+    return 0;
 }
 
 
 void control_lock() {
-    int clockwise_count = get_cw_count();
-    int counterclockwise_count = get_ccw_count();
+    // int clockwise_count = get_cw_count();
+    // int counterclockwise_count = get_ccw_count();
     switch (state){
         case LOCKED:
-            switch(working_index){
-                case FIRST:
-                    first_num = clockwise_count % 16;
-                    // on to second num
-                    if(counterclockwise_count){
-                        rotations_count = clockwise_count / 16;  
-                        if(rotations_count < 3){
-                            valid = false;
-                        }
-                        working_index = SECOND;
-                        set_cw_count(0);
-                        count_rotations(count_buffer);
-                        display_string(4, count_buffer);
-                    }
-                    break;
-                case SECOND:
-                    second_num = counterclockwise_count % 16;
-                    if(clockwise_count){
-                        // on to third num
-                        rotations_count = counterclockwise_count / 16;  
-                        if(rotations_count < 2){
-                            valid = false;
-                        }
-                        working_index = THIRD;
-                        set_ccw_count(0);
-                        count_rotations(count_buffer);
-                        display_string(4, count_buffer);
-                    } else if(counterclockwise_count >= 16 * 3){
-                        first_num = 0;
-                        second_num = 0;
-                        working_index = FIRST;
-                    }
-                    break;
-                case THIRD:
-                    third_num = clockwise_count % 16;
-                    if(counterclockwise_count){
-                        // req 12f, clear combo
-                        first_num = 0;
-                        second_num = 0;
-                        third_num = 0;
-                        working_index = FIRST;
-                        set_ccw_count(0);
-                        set_cw_count(0);
-                        count_rotations(count_buffer);
-                        display_string(4, count_buffer);
-                    } else if(counterclockwise_count >= 16 * 2){
-                        first_num = 0;
-                        second_num = 0;
-                        third_num = 0;
-                        set_ccw_count(0);
-                        set_cw_count(0);
-                        working_index = FIRST;
-                    }
+            get_combo_input(entered_combo_array);
+            if (working_index >= 3) { // filled in all three numbers.
+                if (arraysAreEqual(3, entered_combo_array, combination)){ // the passcode is correct.
+                    state = UNLOCKED;
+                    set_system_to_unlocked();
+                } else { // passcode was wrong.
+                    reset_combo_entry();
+                    attempt_number++;
+                    show_bad_try(attempt_number);
+                }
+            }
+            if (attempt_number > 3){
+                state = ALARMED;
             }
             break;
         case UNLOCKED:
+            if (cowpi_left_switch_is_in_right_position() && cowpi_right_button_is_pressed()){
+                state = CHANGING;
+            }
             break;
         case CHANGING:
+            // TODO: get new combo from numeric keypad.
+            get_new_combo_from_keypad(); // stub 
+            break;
+        case ALARMED:
+            show_system_as_alarmed();
             break;
     }
-    sprintf(combo_buffer, "Combo: %02d-%02d-%02d", first_num, second_num, third_num);
+    sprintf(combo_buffer, "Combo: %02d-%02d-%02d", entered_combo_array[0], entered_combo_array[1], entered_combo_array[2]);
     display_string(1, combo_buffer);
     ;
 }
