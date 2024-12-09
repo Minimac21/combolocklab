@@ -24,6 +24,7 @@
 #define RIGHT_LED_PIN   (20)
 
 static uint8_t combination[3] __attribute__((section (".uninitialized_ram.")));
+
 typedef enum {
     LOCKED, UNLOCKED, CHANGING, ALARMED
 } state_t;
@@ -35,8 +36,10 @@ char count_buffer[20];
 char combo_buffer[20];
 static cowpi_timer_t volatile *timer;
 
-// Add interrupt to check if sequence for combo reset was called
 uint8_t const *get_combination() {
+    for (int i = 0; i < 3; i++){
+        combination[i] %= 16;
+    }
     return combination;
 }
 
@@ -60,7 +63,6 @@ void set_system_to_locked(uint8_t *combination){
     digitalWrite(LEFT_LED_PIN, 1);
     digitalWrite(RIGHT_LED_PIN, 0);
     rotate_full_clockwise();
-    display_string(1, "__ __ __"); // This should display currently entered combo
     
     // SHOW THE COMBINATION (delete later?)
     static char combo_buffer[22] = {0};
@@ -68,11 +70,10 @@ void set_system_to_locked(uint8_t *combination){
     display_string(3, combo_buffer);
 }
 
-void set_system_to_unlocked(){
+void show_system_as_unlocked(){
     digitalWrite(LEFT_LED_PIN, 0);
     digitalWrite(RIGHT_LED_PIN, 1);
     rotate_full_counterclockwise();
-    // clear_display();
     display_string(1, "OPEN");
 }
 
@@ -97,7 +98,6 @@ void show_bad_try(int attempt_num){
 
 void show_system_as_alarmed(){
     display_string(1, "alert!");
-    
     digitalWrite(LEFT_LED_PIN, 1);
     digitalWrite(RIGHT_LED_PIN, 1);
     sleep_quarter_second();
@@ -106,15 +106,13 @@ void show_system_as_alarmed(){
     sleep_quarter_second();
 }
 
-void set_system_to_changing(){
+void show_system_as_changing(){
     display_string(1, "enter!");
-    display_string(2, "__ __ __");
-
 }
 
 void initialize_lock_controller() {
     timer = (cowpi_timer_t *) (0x40054000);
-    set_system_to_locked(combination);
+    set_system_to_locked(get_combination());
     state = LOCKED;
 }
 
@@ -170,13 +168,23 @@ void get_combo_input(uint8_t entered_combo_array[]){
     display_string(4, count_buffer);
     char workingIndexString[5];
     sprintf(workingIndexString, "%d", working_index);
-    display_string(5, workingIndexString);
-
 }
 
 bool get_new_combo_from_keypad(){
     // STUB: return 1 if successfully changed password, else 0.
     return 0;
+}
+
+void format_combo_string(char* combo_buffer, uint8_t* combo_array){
+    char formatted_combo[3][3];
+    for (int i = 0; i < 3; i++) {
+        if (combo_array[i] == 0) {
+            strcpy(formatted_combo[i], "  ");
+        } else {
+            sprintf(formatted_combo[i], "%02d", combo_array[i]);
+        }
+    }
+    sprintf(combo_buffer, "Combo: %s-%s-%s", formatted_combo[0], formatted_combo[1], formatted_combo[2]);
 }
 
 
@@ -187,9 +195,9 @@ void control_lock() {
         case LOCKED:
             get_combo_input(entered_combo_array);
             if (working_index >= 3) { // filled in all three numbers.
-                if (arraysAreEqual(3, entered_combo_array, combination)){ // the passcode is correct.
+                if (arraysAreEqual(3, entered_combo_array, get_combination())){ // the passcode is correct.
                     state = UNLOCKED;
-                    set_system_to_unlocked();
+                    clear_display();
                 } else { // passcode was wrong.
                     reset_combo_entry();
                     attempt_number++;
@@ -199,21 +207,26 @@ void control_lock() {
             if (attempt_number > 3){
                 state = ALARMED;
             }
+            format_combo_string(combo_buffer, entered_combo_array);
+            display_string(1, combo_buffer);
             break;
         case UNLOCKED:
+            show_system_as_unlocked();
             if (cowpi_left_switch_is_in_right_position() && cowpi_right_button_is_pressed()){
                 state = CHANGING;
+                clear_display();
             }
             break;
         case CHANGING:
-            // TODO: get new combo from numeric keypad.
-            get_new_combo_from_keypad(); // stub 
+            show_system_as_changing();
+            get_new_combo_from_keypad(); // stub. todo.
             break;
         case ALARMED:
             show_system_as_alarmed();
             break;
     }
-    sprintf(combo_buffer, "Combo: %02d-%02d-%02d", entered_combo_array[0], entered_combo_array[1], entered_combo_array[2]);
-    display_string(1, combo_buffer);
-    ;
+    char state_buffer[5];
+    sprintf(state_buffer, "State: %d", state);
+    display_string(5, state_buffer);
+
 }
