@@ -116,8 +116,8 @@ static void handle_quadrature_interrupt() {
                         state = LOW_LOW;
                         direction = CLOCKWISE;
                         clockwise_count++;
-                        count_rotations(count_buffer);
-                        display_string(4, count_buffer);
+                        // count_rotations(count_buffer);
+                        // display_string(4, count_buffer);
                     }
                     break;
             }
@@ -134,8 +134,8 @@ static void handle_quadrature_interrupt() {
                         state = LOW_LOW;
                         direction = COUNTERCLOCKWISE;
                         counterclockwise_count++;
-                        count_rotations(count_buffer);
-                        display_string(4, count_buffer);
+                        // count_rotations(count_buffer);
+                        // display_string(4, count_buffer);
                     }
                     break;
             }
