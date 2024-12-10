@@ -29,7 +29,7 @@ typedef enum {
     LOCKED, UNLOCKED, CHANGING, ALARMED
 } state_t;
 typedef enum {
-    ENTER_COMBO, REENTER_COMBO, NO_CHANGE, CHANGED
+    ENTER_COMBO, REENTER_COMBO, WAITING_TO_VALIDATE, NO_CHANGE, CHANGED
 } combo_change_state_t;
 state_t state;
 combo_change_state_t combo_change_state;
@@ -39,14 +39,16 @@ uint8_t entered_combo_array[3];
 uint8_t changed_combo_array[3];
 uint8_t reenter_changed_combo_array[3];
 char combo_buffer[20];
-// char count_buffer[20];
+char changed_combo_buffer[20];
+char reenter_changed_combo_buffer[20];
 
 static cowpi_timer_t volatile *timer;
 
 uint8_t const *get_combination() {
-    for (int i = 0; i < 3; i++){
-        combination[i] %= 16;
-    }
+    // for (int i = 0; i < 3; i++){
+    //     combination[i] %= 16;
+    // }
+    // IF COMBO IS TOO LARGE HIT RIGHT BUTTON
     return combination;
 }
 
@@ -66,22 +68,24 @@ void force_combination_reset() {
     combination[2] = 15;
 }
 
-void set_system_to_locked(uint8_t *combination){
+void set_system_to_locked(uint8_t *new_combination){
     digitalWrite(LEFT_LED_PIN, 1);
     digitalWrite(RIGHT_LED_PIN, 0);
     rotate_full_clockwise();
-    
-    // SHOW THE COMBINATION (delete later?)
+    // SET THE COMBINATION
+    for (int i = 0; i < 3; i++){
+        combination[i] = new_combination[i];
+    }
+    // SHOW THE COMBINATION
     static char combo_buffer[22] = {0};
-    sprintf(combo_buffer, "Combo: %02d-%02d-%02d", combination[0], combination[1], combination[2]);
+    sprintf(combo_buffer, "COMBO: %02d-%02d-%02d", combination[0], combination[1], combination[2]);
     display_string(3, combo_buffer);
 }
 
-void show_system_as_unlocked(){
+void set_system_to_unlocked(){
     digitalWrite(LEFT_LED_PIN, 0);
     digitalWrite(RIGHT_LED_PIN, 1);
     rotate_full_counterclockwise();
-    display_string(1, "OPEN");
 }
 
 void show_bad_try(int attempt_num){
@@ -161,11 +165,9 @@ bool get_new_combo_from_keypad(uint8_t* new_combo_array){
             digit_index = 0;
         }
     }
-    char keybuffer[10];
-    sprintf(keybuffer, "%c", key);
-    display_string(4, keybuffer);
-    format_combo_string(combo_buffer, new_combo_array);
-    // display_string(combo_buffer) is handled in show_system_as_changing() method.
+    // FORMATTING AND DISPLAY IS HANDLED IN 'show_system_as_changing()'.
+    // format_combo_string(changed_combo_buffer, new_combo_array);
+    // display_string(changed_combo_buffer) 
     return combo_is_constructed;
 }
 
@@ -186,39 +188,46 @@ void show_system_as_changing(){
             if (combo_is_constructed){
                 combo_change_state = REENTER_COMBO;
             }
+            format_combo_string(changed_combo_buffer, changed_combo_array);
+            format_combo_string(reenter_changed_combo_buffer, reenter_changed_combo_array);
             display_string(1, "enter!");
-            display_string(2, combo_buffer);
+            display_string(2, changed_combo_buffer);
+            display_string(3, reenter_changed_combo_buffer); // should always be "  -  -  ".
             break;
         }
         case REENTER_COMBO: {
             bool second_combo_is_constructed = get_new_combo_from_keypad(reenter_changed_combo_array);
             if (second_combo_is_constructed){
+                combo_change_state = WAITING_TO_VALIDATE;
+            }
+            format_combo_string(changed_combo_buffer, changed_combo_array);
+            format_combo_string(reenter_changed_combo_buffer, reenter_changed_combo_array);
+            display_string(1, "enter!");
+            display_string(2, changed_combo_buffer);
+            display_string(3, reenter_changed_combo_buffer);
+            break;
+        }
+        case WAITING_TO_VALIDATE: {
+            if (cowpi_left_switch_is_in_left_position()) {
                 if (no_elements_greater_than_n(15, changed_combo_array) &&
                     no_elements_greater_than_n(15, reenter_changed_combo_array) &&
-                    arraysAreEqual(3, changed_combo_array, reenter_changed_combo_array)){
+                    arraysAreEqual(3, changed_combo_array, reenter_changed_combo_array)){ // If new combo is valid, change the combination
                     combo_change_state = CHANGED;
-                } else { // combos do not match
+                } else { // combos do not match or is invalid
                     combo_change_state = NO_CHANGE;
                 }
             }
-            display_string(1, "enter!");
-            display_string(2, combo_buffer);
             break;
         }
         case CHANGED:
-            if (cowpi_left_switch_is_in_left_position()){
-                display_string(1, "changed");
-                for (int i = 0; i < 3; i++){ // set combination to new combo.
-                    combination[i] = changed_combo_array[i];
-                }
-                for (int i = 0; i < 2<<15; i++); // busy wait so this gets time to display.
-            }
+            display_string(4, "changed");
+            // HANDLING THIS IN THE MAIN STATE MACHINE
+            // for (int i = 0; i < 3; i++){ // set combination to new combo.
+            //     combination[i] = changed_combo_array[i];
+            // }
             break;
         case NO_CHANGE:
-            if (cowpi_left_switch_is_in_left_position()){
-                display_string(1, "no change");
-                for (int i = 0; i < 2<<15; i++); // busy wait so this gets time to display.
-            }
+            display_string(4, "no change");
             break;
     }
 }
@@ -271,6 +280,7 @@ void control_lock() {
             if (working_index >= 3) { // filled in all three numbers.
                 if (arraysAreEqual(3, entered_combo_array, get_combination())){ // the passcode is correct.
                     state = UNLOCKED;
+                    attempt_number = 0;
                     clear_display();
                 } else { // passcode was wrong.
                     reset_combo_entry();
@@ -285,7 +295,8 @@ void control_lock() {
             display_string(1, combo_buffer);
             break;
         case UNLOCKED:
-            show_system_as_unlocked();
+            set_system_to_unlocked();
+            display_string(1, "OPEN");
             if (cowpi_left_switch_is_in_right_position() && cowpi_right_button_is_pressed()){
                 state = CHANGING;
                 clear_array(3, changed_combo_array);
@@ -295,11 +306,16 @@ void control_lock() {
             }
             if (cowpi_left_button_is_pressed() && cowpi_right_button_is_pressed()){
                 state = LOCKED;
-                set_system_to_locked(combination);
+                clear_display();
+                clear_array(3, entered_combo_array);
+                set_system_to_locked(changed_combo_array);
             }
             break;
         case CHANGING:
             show_system_as_changing();
+            char change_buffer[10];
+            sprintf(change_buffer, "Change: %d", combo_change_state);
+            display_string(5, change_buffer);
             if (combo_change_state == CHANGED || combo_change_state == NO_CHANGE){
                 state = UNLOCKED;
                 reset_combo_entry();
@@ -311,6 +327,6 @@ void control_lock() {
     }
     char state_buffer[10];
     sprintf(state_buffer, "State: %d", state);
-    display_string(5, state_buffer);
+    display_string(6, state_buffer);
 
 }
