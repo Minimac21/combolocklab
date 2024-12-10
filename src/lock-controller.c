@@ -32,6 +32,7 @@ typedef enum {
     ENTER_COMBO, REENTER_COMBO, WAITING_TO_VALIDATE, NO_CHANGE, CHANGED
 } combo_change_state_t;
 state_t state;
+bool valid_enough_rotations = true;
 combo_change_state_t combo_change_state;
 uint8_t working_index = 0;
 uint8_t attempt_number = 0;
@@ -121,6 +122,18 @@ void format_combo_string(char* combo_buffer, uint8_t* combo_array){
     char formatted_combo[3][3];
     for (int i = 0; i < 3; i++) {
         if (combo_array[i] == 0) {
+            strcpy(formatted_combo[i], "  ");
+        } else {
+            sprintf(formatted_combo[i], "%02d", combo_array[i]);
+        }
+    }
+    sprintf(combo_buffer, "Combo: %s-%s-%s", formatted_combo[0], formatted_combo[1], formatted_combo[2]);
+}
+
+void format_combo_string_w_index(char* combo_buffer, int working_index, uint8_t* combo_array){
+    char formatted_combo[3][3];
+    for (int i = 0; i < 3; i++) {
+        if (combo_array[i] == 0 && working_index != i) {
             strcpy(formatted_combo[i], "  ");
         } else {
             sprintf(formatted_combo[i], "%02d", combo_array[i]);
@@ -258,12 +271,17 @@ void get_combo_input(uint8_t entered_combo_array[]){
         bool valid = true;
         if (expected_direction == CLOCKWISE){
             int cw_count = get_cw_count();
-            entered_combo_array[working_index] = cw_count;
-            valid = cw_count <= ((COMBO_LENGTH - working_index) * 16); // check if you overspun and missed your number.
+            entered_combo_array[working_index] = cw_count % 16;
+            if(working_index == 0){
+                valid_enough_rotations = (cw_count >= 16*3);
+            } else if(working_index == 2) {
+                valid = (cw_count < 16); // check if you overspun and missed your number.
+            }
         } else if (expected_direction == COUNTERCLOCKWISE){ // this 'if' is redundent, but i kept it for clarity because "STATIONARY" exists.
             int ccw_count = get_ccw_count();
-            entered_combo_array[working_index] = ccw_count;
-            valid = ccw_count <= ((COMBO_LENGTH - working_index) * 16);
+            entered_combo_array[working_index] = ccw_count % 16;
+            valid = (ccw_count < 16 * 2);
+            valid_enough_rotations = (ccw_count >= 16);
         }
         if (!valid){
             reset_combo_entry();
@@ -278,7 +296,7 @@ void control_lock() {
         case LOCKED:
             get_combo_input(entered_combo_array);
             if (working_index >= 3) { // filled in all three numbers.
-                if (arraysAreEqual(3, entered_combo_array, get_combination())){ // the passcode is correct.
+                if (arraysAreEqual(3, entered_combo_array, get_combination()) && valid_enough_rotations){ // the passcode is correct.
                     state = UNLOCKED;
                     attempt_number = 0;
                     clear_display();
@@ -291,7 +309,7 @@ void control_lock() {
             if (attempt_number > 3){
                 state = ALARMED;
             }
-            format_combo_string(combo_buffer, entered_combo_array);
+            format_combo_string_w_index(combo_buffer, working_index, entered_combo_array);
             display_string(1, combo_buffer);
             break;
         case UNLOCKED:
