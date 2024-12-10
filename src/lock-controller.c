@@ -165,7 +165,7 @@ bool get_new_combo_from_keypad(uint8_t* new_combo_array){
     sprintf(keybuffer, "%c", key);
     display_string(4, keybuffer);
     format_combo_string(combo_buffer, new_combo_array);
-    display_string(1, combo_buffer);
+    // display_string(combo_buffer) is handled in show_system_as_changing() method.
     return combo_is_constructed;
 }
 
@@ -181,15 +181,16 @@ bool no_elements_greater_than_n(uint8_t n, uint8_t* array){
 
 void show_system_as_changing(){
     switch (combo_change_state){
-        case ENTER_COMBO:
-            display_string(1, "enter!");
+        case ENTER_COMBO: {
             bool combo_is_constructed = get_new_combo_from_keypad(changed_combo_array);
             if (combo_is_constructed){
                 combo_change_state = REENTER_COMBO;
             }
-            break;
-        case REENTER_COMBO:
             display_string(1, "enter!");
+            display_string(2, combo_buffer);
+            break;
+        }
+        case REENTER_COMBO: {
             bool second_combo_is_constructed = get_new_combo_from_keypad(reenter_changed_combo_array);
             if (second_combo_is_constructed){
                 if (no_elements_greater_than_n(15, changed_combo_array) &&
@@ -200,7 +201,10 @@ void show_system_as_changing(){
                     combo_change_state = NO_CHANGE;
                 }
             }
+            display_string(1, "enter!");
+            display_string(2, combo_buffer);
             break;
+        }
         case CHANGED:
             if (cowpi_left_switch_is_in_left_position()){
                 display_string(1, "changed");
