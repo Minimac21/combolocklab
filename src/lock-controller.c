@@ -18,6 +18,7 @@
 #include "display.h"
 #include "lock-controller.h"
 #include "rotary-encoder.h"
+#include "interrupt_support.h"
 #include "servomotor.h"
 
 #define LEFT_LED_PIN    (21)
@@ -246,8 +247,29 @@ void show_system_as_changing(){
     }
 }
 
+void evaluate_combo(){
+    if (arraysAreEqual(3, entered_combo_array, get_combination()) && valid_enough_rotations){ // the passcode is correct.
+        state = UNLOCKED;
+        attempt_number = 0;
+        clear_display();
+    } else { // passcode was wrong.
+        reset_combo_entry();
+        attempt_number++;
+        show_bad_try(attempt_number);
+    }
+}
+
+void maybe_enter_changing_state(){
+    if(cowpi_left_switch_is_in_right_position()){
+        state = CHANGING;
+        combo_change_state = ENTER_COMBO;
+    }
+}
+
 void initialize_lock_controller() {
     timer = (cowpi_timer_t *) (0x40054000);
+    register_pin_ISR((1<<2), evaluate_combo);
+    register_pin_ISR((1<<3), maybe_enter_changing_state);
     set_system_to_locked(get_combination());
     state = LOCKED;
 }
@@ -261,6 +283,7 @@ void reset_combo_entry(){
 }
 
 void get_combo_input(uint8_t entered_combo_array[]){
+
     int COMBO_LENGTH = 3; // needs to be equal to length of entered_combo_array[].
     // first and third numbers are clockwise, second number is counterclockwise.
     direction_t expected_direction = (working_index % 2 == 0) ? CLOCKWISE : COUNTERCLOCKWISE;
@@ -297,20 +320,13 @@ void get_combo_input(uint8_t entered_combo_array[]){
     }
 }
 
+
 void control_lock() {
     switch (state){
         case LOCKED:
             get_combo_input(entered_combo_array);
             if (working_index >= 3) { // filled in all three numbers.
-                if (arraysAreEqual(3, entered_combo_array, get_combination()) && valid_enough_rotations){ // the passcode is correct.
-                    state = UNLOCKED;
-                    attempt_number = 0;
-                    clear_display();
-                } else { // passcode was wrong.
-                    reset_combo_entry();
-                    attempt_number++;
-                    show_bad_try(attempt_number);
-                }
+                reset_combo_entry();
             }
             if (attempt_number > 3){
                 state = ALARMED;
