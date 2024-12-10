@@ -33,6 +33,7 @@ typedef enum {
 } combo_change_state_t;
 state_t state;
 bool valid_enough_rotations = true;
+bool entering = false;
 combo_change_state_t combo_change_state;
 uint8_t working_index = 0;
 uint8_t attempt_number = 0;
@@ -255,6 +256,7 @@ void reset_combo_entry(){
     clear_array(3, entered_combo_array);
     set_cw_count(0);
     set_ccw_count(0);
+    entering = false;
     working_index = 0;
 }
 
@@ -264,6 +266,7 @@ void get_combo_input(uint8_t entered_combo_array[]){
     direction_t expected_direction = (working_index % 2 == 0) ? CLOCKWISE : COUNTERCLOCKWISE;
     direction_t actual_direction = get_direction();
     if ((actual_direction != STATIONARY) && (actual_direction != expected_direction)){ // when we switch directions.
+        entering = true;
         working_index++;
         set_cw_count(0);
         set_ccw_count(0);
@@ -271,6 +274,9 @@ void get_combo_input(uint8_t entered_combo_array[]){
         bool valid = true;
         if (expected_direction == CLOCKWISE){
             int cw_count = get_cw_count();
+            if(cw_count){
+                entering = true;
+            }
             entered_combo_array[working_index] = cw_count % 16;
             if(working_index == 0){
                 valid_enough_rotations = (cw_count >= 16*3);
@@ -309,7 +315,11 @@ void control_lock() {
             if (attempt_number > 3){
                 state = ALARMED;
             }
-            format_combo_string_w_index(combo_buffer, working_index, entered_combo_array);
+            if(entering){
+                format_combo_string_w_index(combo_buffer, working_index, entered_combo_array);
+            } else{
+                format_combo_string(combo_buffer, entered_combo_array);
+            }
             display_string(1, combo_buffer);
             break;
         case UNLOCKED:
