@@ -71,6 +71,11 @@ void sleep_quarter_second(){
     while (get_microseconds() < 250000 + wait_start_time){;;}
 }
 
+bool alert_after_one_second(uint32_t start_time){
+    const uint32_t one_second = 1000000;
+    return get_microseconds() > one_second + start_time;
+}
+
 void force_combination_reset() {
     combination[0] = 5;
     combination[1] = 10;
@@ -85,11 +90,11 @@ void set_system_to_locked(uint8_t *new_combination){
     for (int i = 0; i < 3; i++){
         combination[i] = new_combination[i];
     }
-    // SHOW THE COMBINATION
-    static char combo_buffer[22] = {0};
-    reset_combo_entry();
-    sprintf(combo_buffer, "COMBO: %02d-%02d-%02d", combination[0], combination[1], combination[2]);
-    display_string(3, combo_buffer);
+    // SHOW THE COMBINATION (delete later?)
+    // static char combo_buffer[22] = {0};
+    // reset_combo_entry();
+    // sprintf(combo_buffer, "COMBO: %02d-%02d-%02d", combination[0], combination[1], combination[2]);
+    // display_string(3, combo_buffer);
 }
 
 void set_system_to_unlocked(){
@@ -207,6 +212,7 @@ bool no_elements_greater_than_n(uint8_t n, uint8_t* array){
 }
 
 void show_system_as_changing(){
+    uint32_t change_notification_display_start_time;
     switch (combo_change_state){
         case ENTER_COMBO: {
             bool combo_is_constructed = get_new_combo_from_keypad(changed_combo_array);
@@ -241,14 +247,21 @@ void show_system_as_changing(){
                 } else { // combos do not match or is invalid
                     combo_change_state = NO_CHANGE;
                 }
+                change_notification_display_start_time = get_microseconds();
             }
             break;
         }
         case CHANGED:
             display_string(4, "changed");
+            if (alert_after_one_second(change_notification_display_start_time)){
+                state = UNLOCKED;
+            }
             break;
         case NO_CHANGE:
             display_string(4, "no change");
+            if (alert_after_one_second(change_notification_display_start_time)){
+                state = UNLOCKED;
+            }
             break;
     }
 }
@@ -346,20 +359,11 @@ void control_lock() {
             break;
         case CHANGING:
             show_system_as_changing();
-            char change_buffer[10];
-            sprintf(change_buffer, "Change: %d", combo_change_state);
-            display_string(5, change_buffer);
-            if (combo_change_state == CHANGED || combo_change_state == NO_CHANGE){
-                state = UNLOCKED;
-                reset_combo_entry();
-            }
+            reset_combo_entry();
+            // reluctantly, state switch to UNLOCKED is located inside show_system_as_changing();
             break;
         case ALARMED:
             show_system_as_alarmed();
             break;
     }
-    char working_index_buffer[10];
-    sprintf(working_index_buffer, "WI: %d", working_index);
-    display_string(6, working_index_buffer);
-
 }
