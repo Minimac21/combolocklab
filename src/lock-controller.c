@@ -57,9 +57,6 @@ char reenter_changed_combo_buffer[20];
 static cowpi_timer_t volatile *timer;
 
 uint8_t const *get_combination() {
-    // for (int i = 0; i < 3; i++){
-    //     combination[i] %= 16;
-    // }
     // IF COMBO IS TOO LARGE HIT RIGHT BUTTON
     return combination;
 }
@@ -90,6 +87,7 @@ void set_system_to_locked(uint8_t *new_combination){
     }
     // SHOW THE COMBINATION
     static char combo_buffer[22] = {0};
+    reset_combo_entry();
     sprintf(combo_buffer, "COMBO: %02d-%02d-%02d", combination[0], combination[1], combination[2]);
     display_string(3, combo_buffer);
 }
@@ -144,7 +142,7 @@ void format_combo_string(char* combo_buffer, uint8_t* combo_array){
 void format_combo_string_w_index(char* combo_buffer, int working_index, uint8_t* combo_array){
     char formatted_combo[3][3];
     for (int i = 0; i < 3; i++) {
-        if (combo_array[i] == 0 && working_index != i) {
+        if (combo_array[i] == 0 && working_index < i) {
             strcpy(formatted_combo[i], "  ");
         } else {
             sprintf(formatted_combo[i], "%02d", combo_array[i]);
@@ -195,8 +193,6 @@ bool get_new_combo_from_keypad(uint8_t* new_combo_array){
         }
     }
     // FORMATTING AND DISPLAY IS HANDLED IN 'show_system_as_changing()'.
-    // format_combo_string(changed_combo_buffer, new_combo_array);
-    // display_string(changed_combo_buffer) 
     return combo_is_constructed;
 }
 
@@ -250,10 +246,6 @@ void show_system_as_changing(){
         }
         case CHANGED:
             display_string(4, "changed");
-            // HANDLING THIS IN THE MAIN STATE MACHINE
-            // for (int i = 0; i < 3; i++){ // set combination to new combo.
-            //     combination[i] = changed_combo_array[i];
-            // }
             break;
         case NO_CHANGE:
             display_string(4, "no change");
@@ -261,29 +253,8 @@ void show_system_as_changing(){
     }
 }
 
-// void evaluate_combo(){
-//     if (arraysAreEqual(3, entered_combo_array, get_combination()) && valid_enough_rotations){ // the passcode is correct.
-//         state = UNLOCKED;
-//         attempt_number = 0;
-//         clear_display();
-//     } else { // passcode was wrong.
-//         reset_combo_entry();
-//         attempt_number++;
-//         show_bad_try(attempt_number);
-//     }
-// }
-
-// void maybe_enter_changing_state(){
-//     if(cowpi_left_switch_is_in_right_position()){
-//         state = CHANGING;
-//         combo_change_state = ENTER_COMBO;
-//     }
-// }
-
 void initialize_lock_controller() {
     timer = (cowpi_timer_t *) (0x40054000);
-    // register_pin_ISR((1<<2), evaluate_combo);
-    // register_pin_ISR((1<<3), maybe_enter_changing_state);
     set_system_to_locked(get_combination());
     state = LOCKED;
 }
@@ -294,6 +265,7 @@ void reset_combo_entry(){
     set_ccw_count(0);
     entering = false;
     working_index = 0;
+    while (get_direction() != STATIONARY){;;} // prevents working_index from incrementing immediately.
 }
 
 void get_combo_input(uint8_t entered_combo_array[]){
@@ -301,7 +273,6 @@ void get_combo_input(uint8_t entered_combo_array[]){
     direction_t expected_direction = (working_index % 2 == 0) ? CLOCKWISE : COUNTERCLOCKWISE;
     direction_t actual_direction = get_direction();
     if ((actual_direction != STATIONARY) && (actual_direction != expected_direction)){ // when we switch directions.
-        entering = true;
         working_index++;
         set_cw_count(0);
         set_ccw_count(0);
@@ -310,19 +281,19 @@ void get_combo_input(uint8_t entered_combo_array[]){
         if (expected_direction == CLOCKWISE){
             int cw_count = get_cw_count();
             if(cw_count){
-                entering = true;
+                entered_combo_array[working_index] = (cw_count - 1) % 16; // -1 makes it possible to enter zero. % 16 makes possible range 0-15 inclusive.
             }
-            entered_combo_array[working_index] = cw_count % 16;
             if(working_index == 0){
                 valid_enough_rotations = (cw_count >= 16*3);
             } else if(working_index == 2) {
-                valid = (cw_count < 16); // check if you overspun and missed your number.
+                valid = (cw_count <= 16); // check if you overspun and missed your number.
             }
         } else if (expected_direction == COUNTERCLOCKWISE){ // this 'if' is redundent, but i kept it for clarity because "STATIONARY" exists.
             int ccw_count = get_ccw_count();
-            entered_combo_array[working_index] = ccw_count % 16;
-            valid = (ccw_count < 16 * 2);
-            valid_enough_rotations = (ccw_count >= 16);
+            valid = (ccw_count <= 16 * 2);
+            if (ccw_count){ //start counting after the first rotation. Prevents setting combo entry to -1.
+                entered_combo_array[working_index] = (ccw_count - 1) % 16; // -1 makes it possible to enter zero. % 16 makes possible range 0-15 inclusive.
+            }
         }
         if (!valid){
             reset_combo_entry();
@@ -353,11 +324,7 @@ void control_lock() {
             if (attempt_number > 3){
                 state = ALARMED;
             }
-            if(entering){
-                format_combo_string_w_index(combo_buffer, working_index, entered_combo_array);
-            } else{
-                format_combo_string(combo_buffer, entered_combo_array);
-            }
+            format_combo_string_w_index(combo_buffer, working_index, entered_combo_array);
             display_string(1, combo_buffer);
             break;
         case UNLOCKED:
@@ -391,8 +358,8 @@ void control_lock() {
             show_system_as_alarmed();
             break;
     }
-    char state_buffer[10];
-    sprintf(state_buffer, "State: %d", state);
-    display_string(6, state_buffer);
+    char working_index_buffer[10];
+    sprintf(working_index_buffer, "WI: %d", working_index);
+    display_string(6, working_index_buffer);
 
 }
