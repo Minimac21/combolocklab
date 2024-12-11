@@ -25,6 +25,16 @@
 
 static uint8_t combination[3] __attribute__((section (".uninitialized_ram.")));
 
+#define DEBOUNCE_THRESHOLD (20)
+
+#define debounce_interrupt(action)                            \
+  do {                                                        \
+    static unsigned long last_trigger = 0L;                   \
+    unsigned long now = millis();                             \
+    if (now - last_trigger > DEBOUNCE_THRESHOLD) { action; }  \
+    last_trigger = now;                                       \
+  } while(0)
+
 typedef enum {
     LOCKED, UNLOCKED, CHANGING, ALARMED
 } state_t;
@@ -164,9 +174,14 @@ bool get_new_combo_from_keypad(uint8_t* new_combo_array){
     // 0...6-1. Every even index is in the tens place.
     static uint8_t digit_index = 0; 
     // char key = cowpi_debounce_byte(cowpi_get_keypress, KEYPAD);
-    char key = cowpi_get_keypress();
+    static char debounce_key = 0xf0;
+    char key;
+    debounce_interrupt({
+        while ((key = cowpi_get_keypress()) == debounce_key) {}     // busy-wait through the race condition
+        debounce_key = key;
+    });
     bool combo_is_constructed = false;
-    if (key >= '0' && key <= '9'){ // when a number key is pressed.
+    if (key >= '0' && key <= '9' ){ // when a number key is pressed.
         uint8_t digit = key - '0';
         if (digit_index % 2 == 0){ // this digit in tens place.
             new_combo_array[digit_index / 2] = digit * 10;
